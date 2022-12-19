@@ -28,7 +28,7 @@ typedef struct SceUserServiceLoginUserIdList{
 
 typedef int SceUserServiceUserId;
 
-int sceUserServiceInitialize(void *);
+int sceUserServiceInitialize(int *params);
 int sceUserServiceGetLoginUserIdList(SceUserServiceLoginUserIdList *);
 int sceUserServiceGetUserName(int32_t userId, char *userName, const size_t size);
 int sceUserServiceGetInitialUser(int32_t *userId);

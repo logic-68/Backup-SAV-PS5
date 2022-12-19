@@ -1,15 +1,151 @@
 #include <utils.h>
 
-#define VERSION "1.0.0b"
+#define VERSION "1.0.1"
 #define DEBUG_SOCKET
 #define DEBUG_ADDR IP(192, 168, 1, 155);
 #define DEBUG_PORT 5655
 #define PROSPERO "savedata_prospero"
 #define HOME "/user/home"
+#define OCT_TO_MO / 1024 / 1024
 
 int sock;
-int32_t userId;
+int nthread_run, sav, isxfer = 0;
+char *cDir;
+size_t sizeCurrent, total_bytes_copied = 0;
 
+void copy_file(char *src_path, char *dst_path)
+{
+	int src = f_open(src_path, O_RDONLY, 0);
+	if (src != -1)
+	{
+		int out = f_open(dst_path, O_WRONLY | O_CREAT | O_TRUNC, 0777);
+		if (out != -1)
+		{
+
+			char *buffer = f_malloc(4194304);
+			if (buffer != NULL)
+			{
+				size_t bytes, bytes_size, bytes_copied = 0;
+				f_lseek(src, 0L, SEEK_END);
+				bytes_size = f_lseek(src, 0, SEEK_CUR);
+				f_lseek(src, 0L, SEEK_SET);
+				while ((bytes = f_read(src, buffer, 4194304)) > 0)
+				{
+					f_write(out, buffer, bytes);
+					bytes_copied += bytes;
+					if (bytes_copied > bytes_size)
+						bytes_copied = bytes_size;
+					total_bytes_copied += bytes_copied;
+				}
+				f_free(buffer);
+			}
+		}
+		f_close(out);
+	}
+	f_close(src);
+}
+
+void copy_dir(char *dir_current, char *out_dir)
+{
+	DIR *dir = f_opendir(dir_current);
+	struct dirent *dp;
+	struct stat info;
+	char src_path[256], dst_path[256];
+	if (!dir)
+	{
+		return;
+	}
+
+	f_mkdir(out_dir, 0777);
+
+	if (dir_exists(out_dir))
+	{
+		while ((dp = f_readdir(dir)) != NULL)
+		{
+			if (!f_strcmp(dp->d_name, ".") || !f_strcmp(dp->d_name, ".."))
+			{
+				continue;
+			}
+			else
+			{
+				f_sprintf(src_path, "%s/%s", dir_current, dp->d_name);
+				f_sprintf(dst_path, "%s/%s", out_dir, dp->d_name);
+
+				if (!f_stat(src_path, &info))
+				{
+					if (S_ISDIR(info.st_mode))
+					{
+						cDir = src_path;
+						copy_dir(src_path, dst_path);
+					}
+					else if (S_ISREG(info.st_mode))
+					{
+						copy_file(src_path, dst_path);
+					}
+				}
+			}
+		}
+	}
+	f_closedir(dir);
+}
+
+void check_size_folder_current(char *dir_current)
+{
+	DIR *dir = f_opendir(dir_current);
+	struct dirent *dp;
+	struct stat info;
+	char src_file[1024];
+	size_t size;
+	if (!dir)
+		return;
+	while ((dp = f_readdir(dir)) != NULL)
+	{
+		if (!f_strcmp(dp->d_name, ".") || !f_strcmp(dp->d_name, ".."))
+			continue;
+		else
+		{
+			f_sprintf(src_file, "%s/%s", dir_current, dp->d_name);
+			if (!f_stat(src_file, &info))
+			{
+				if (S_ISDIR(info.st_mode))
+				{
+					sav++;
+					check_size_folder_current(src_file);
+				}
+				else if (S_ISREG(info.st_mode))
+				{
+					size = size_file(src_file);
+					sizeCurrent += size;
+				}
+			}
+		}
+	}
+	f_closedir(dir);
+
+}
+void *nthread_func(void *arg)
+{
+	UNUSED(arg);
+	time_t t1, t2;
+	t1 = 0;
+	while (nthread_run)
+	{
+		if (isxfer)
+		{
+			t2 = f_time(NULL);
+			if ((t2 - t1) >= 7)
+			{
+				t1 = t2;
+				printf_notification("Copy in progress please wait...\n%i%%", total_bytes_copied * 100 / sizeCurrent);
+			}
+		}
+		else
+			t1 = 0;
+		f_sceKernelSleep(5);
+	}
+
+	return NULL;
+}
 int payload_main(struct payload_args *args)
 {
 	dlsym_t *dlsym = args->dlsym;
@@ -116,6 +252,11 @@ int payload_main(struct payload_args *args)
 
 	int libSysModule = f_sceKernelLoadStartModule("libSceSysmodule.sprx", 0, 0, 0, 0, 0);
 	dlsym(libSysModule, "sceSysmoduleLoadModuleInternal", &f_sceSysmoduleLoadModuleInternal);
+	dlsym(libSysModule, "sceSysmoduleUnloadModuleInternal", &f_sceSysmoduleUnloadModuleInternal);
+
+	int sysModule = f_sceSysmoduleLoadModuleInternal(SCE_SYSMODULE_INTERNAL_USER_SERVICE);
+	SceUserServiceLoginUserIdList userIdList;
+	memset_s(&userIdList, sizeof(SceUserServiceLoginUserIdList), 0, sizeof(SceUserServiceLoginUserIdList));
 
 	int libUserService = f_sceKernelLoadStartModule("libSceUserService.sprx", 0, 0, 0, 0, 0);
 	dlsym(libUserService, "sceUserServiceInitialize", &f_sceUserServiceInitialize);
@@ -133,27 +274,27 @@ int payload_main(struct payload_args *args)
 	sock = f_sceNetSocket("debug", AF_INET, SOCK_STREAM, 0);
 	f_sceNetConnect(sock, (struct sockaddr *)&server, sizeof(server));
 
-	char src_path[256], dst_path[256];
-	char usb_mount_path[64];
-	char userName[16];
+	char src_path[256], dst_path[256], usb_mount_path[64], userName[16];
+	int32_t userId;
 
-	int sysModule = f_sceSysmoduleLoadModuleInternal(SCE_SYSMODULE_INTERNAL_USER_SERVICE);
-	SceUserServiceLoginUserIdList userIdList;
-	memset_s(&userIdList, sizeof(SceUserServiceLoginUserIdList), 0, sizeof(SceUserServiceLoginUserIdList));
+	nthread_run = 1;
+
+	ScePthread nthread;
+	f_scePthreadCreate(&nthread, NULL, nthread_func, NULL, "nthread");
 
 	char *usb_mnt_path = getusbpath();
 	if (usb_mnt_path == NULL)
 	{
 		do
 		{
-			printf_notification("Please insert USB media in exfat format");
+			printf_notification("Please insert USB media in exfat/fat32 format");
 			f_sceKernelSleep(7);
 			usb_mnt_path = getusbpath();
 		} while (usb_mnt_path == NULL);
 	}
 	f_sprintf(usb_mount_path, "%s", usb_mnt_path);
 	f_free(usb_mnt_path);
-	
+
 	if (sysModule == 0)
 	{
 		if (getUserIDList(&userIdList) == 0)
@@ -170,20 +311,50 @@ int payload_main(struct payload_args *args)
 					f_sceKernelSleep(7);
 				}
 			}
+			f_sprintf(src_path, "%s/%x/%s", HOME, userId, PROSPERO);
+
+			check_size_folder_current(src_path);
+			size_t tmpCurrentSize = sizeCurrent;
+			
+			printfsocket("%lu", sizeCurrent);
+			printf_notification("Size of: %s\n%.2fMo\nNumber of saves: %d\nCopy start.Please wait...", PROSPERO, (double)sizeCurrent OCT_TO_MO, sav);
+			f_sceKernelSleep(7);
+			f_sprintf(dst_path, "%s/%s/%s", usb_mount_path, userName, PROSPERO);
+
+			if (dir_exists(src_path))
+			{
+				sizeCurrent = 0;
+				isxfer = 1;
+				copy_dir(src_path, dst_path);
+				isxfer = 0;
+				f_sceKernelSleep(7);
+				
+				check_size_folder_current(src_path);
+				if(tmpCurrentSize == sizeCurrent)
+				{
+					printf_notification("Copy of:\n%s\n★Successfully★\n%.2f/%.2f Go", src_path, (double)sizeCurrent OCT_TO_MO, (double)tmpCurrentSize OCT_TO_MO);	
+					f_sceKernelSleep(7);
+				} else {
+					printf_notification("An error is served try again");
+				}
+			}
+			else
+			{
+				printf_notification("%s", "No backup for this account");
+			}
 		}
-	}
-	f_sprintf(src_path, "%s/%x/%s", HOME, userId, PROSPERO);
-	f_sprintf(dst_path, "%s/%s/%s", usb_mount_path, userName, PROSPERO);
-	f_mkdir(dst_path, 0777);
-	if (dir_exists(src_path))
-	{
-		copy_dir(src_path, dst_path);
+		else
+		{
+			printf_notification("Sorry, error loading user list...");
+		}
 	}
 	else
 	{
-		printf_notification("%s", "No backup for this account");
+		printf_notification("Sory, error loading libSceSysmodule...");
 	}
-	printf_notification("END");
-	printfsocket("EXIT");
+	nthread_run = 0;
+	sysModule = f_sceSysmoduleUnloadModuleInternal(SCE_SYSMODULE_INTERNAL_USER_SERVICE);
+
+	printf_notification("Thank you for using Backup-SAV-PS5\n\nGoodbye!");
 	return 0;
 }

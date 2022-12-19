@@ -126,6 +126,7 @@ typeof(realloc) * f_realloc;
 typeof(seekdir) * f_seekdir;
 
 typeof(sceSysmoduleLoadModuleInternal) * f_sceSysmoduleLoadModuleInternal;
+typeof(sceSysmoduleUnloadModuleInternal) * f_sceSysmoduleUnloadModuleInternal;
 
 typeof(sceUserServiceInitialize) * f_sceUserServiceInitialize;
 typeof(sceUserServiceGetInitialUser) * f_sceUserServiceGetInitialUser;
