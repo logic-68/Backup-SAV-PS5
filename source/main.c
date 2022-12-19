@@ -332,7 +332,7 @@ int payload_main(struct payload_args *args)
 				check_size_folder_current(src_path);
 				if(tmpCurrentSize == sizeCurrent)
 				{
-					printf_notification("Copy of:\n%s\n★Successfully★\n%.2f/%.2f Go", src_path, (double)sizeCurrent OCT_TO_MO, (double)tmpCurrentSize OCT_TO_MO);	
+					printf_notification("Copy of:\n%s\n★Successfully★\n%.2f/%.2fMo", src_path, (double)sizeCurrent OCT_TO_MO, (double)tmpCurrentSize OCT_TO_MO);	
 					f_sceKernelSleep(7);
 				} else {
 					printf_notification("An error is served try again");
