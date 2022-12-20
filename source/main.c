@@ -1,17 +1,18 @@
 #include <utils.h>
 
-#define VERSION "1.0.1"
+#define VERSION "1.0.2"
 #define DEBUG_SOCKET
 #define DEBUG_ADDR IP(192, 168, 1, 155);
 #define DEBUG_PORT 5655
 #define PROSPERO "savedata_prospero"
+#define PROSPERO_META "savedata_prospero_meta"
 #define HOME "/user/home"
 #define OCT_TO_MO / 1024 / 1024
 
 int sock;
-int nthread_run, sav, isxfer = 0;
+int nthread_run, sav, isxfer;
 char *cDir;
-size_t sizeCurrent, total_bytes_copied = 0;
+size_t sizeCurrent, total_bytes_copied;
 
 void copy_file(char *src_path, char *dst_path)
 {
@@ -121,7 +122,6 @@ void check_size_folder_current(char *dir_current)
 		}
 	}
 	f_closedir(dir);
-
 }
 void *nthread_func(void *arg)
 {
@@ -274,14 +274,12 @@ int payload_main(struct payload_args *args)
 	sock = f_sceNetSocket("debug", AF_INET, SOCK_STREAM, 0);
 	f_sceNetConnect(sock, (struct sockaddr *)&server, sizeof(server));
 
-	char src_path[256], dst_path[256], usb_mount_path[64], userName[16];
-	int32_t userId;
-
-	nthread_run = 1;
-
 	ScePthread nthread;
 	f_scePthreadCreate(&nthread, NULL, nthread_func, NULL, "nthread");
 
+	char src_path[256], dst_path[256], usb_mount_path[64], userName[16];
+	int32_t userId;
+	nthread_run = 1;
 	char *usb_mnt_path = getusbpath();
 	if (usb_mnt_path == NULL)
 	{
@@ -312,49 +310,75 @@ int payload_main(struct payload_args *args)
 				}
 			}
 			f_sprintf(src_path, "%s/%x/%s", HOME, userId, PROSPERO);
-
-			check_size_folder_current(src_path);
-			size_t tmpCurrentSize = sizeCurrent;
-			
-			printfsocket("%lu", sizeCurrent);
-			printf_notification("Size of: %s\n%.2fMo\nNumber of saves: %d\nCopy start.Please wait...", PROSPERO, (double)sizeCurrent OCT_TO_MO, sav);
-			f_sceKernelSleep(7);
 			f_sprintf(dst_path, "%s/%s/%s", usb_mount_path, userName, PROSPERO);
 
 			if (dir_exists(src_path))
 			{
+				total_bytes_copied = 0;
 				sizeCurrent = 0;
+				sav = 0;
+				check_size_folder_current(src_path);
+				printf_notification("Size of: %s\n%.2fMo\nNumber of saves: %d\nCopy start. Please wait...", PROSPERO, (double)sizeCurrent OCT_TO_MO, sav);
+				f_sceKernelSleep(7);
 				isxfer = 1;
 				copy_dir(src_path, dst_path);
 				isxfer = 0;
 				f_sceKernelSleep(7);
-				
+				sizeCurrent = 0;
+
 				check_size_folder_current(src_path);
-				if(tmpCurrentSize == sizeCurrent)
+
+				if (total_bytes_copied == sizeCurrent)
 				{
-					printf_notification("Copy of:\n%s\n★Successfully★\n%.2f/%.2fMo", src_path, (double)sizeCurrent OCT_TO_MO, (double)tmpCurrentSize OCT_TO_MO);	
+					printf_notification("Copy of: %s\n★Successfully★\n%.2f/%.2fMo", PROSPERO, (double)total_bytes_copied OCT_TO_MO, (double)sizeCurrent OCT_TO_MO);
 					f_sceKernelSleep(7);
-				} else {
+				}
+				else
+				{
 					printf_notification("An error is served try again");
 				}
+
+				f_sprintf(src_path, "%s/%x/%s/user", HOME, userId, PROSPERO_META);
+				f_sprintf(dst_path, "%s/%s/%s", usb_mount_path, userName, PROSPERO_META);
+
+				if (dir_exists(src_path))
+				{
+					f_mkdir(src_path, 0777);
+					total_bytes_copied = 0;
+					sizeCurrent = 0;
+					sav = 0;
+					check_size_folder_current(src_path);
+					printf_notification("Size of: %s\n%.2fMo\nNumber of saves: %d\nCopy start. Please wait...", PROSPERO_META, (double)sizeCurrent OCT_TO_MO, sav);
+					f_sceKernelSleep(7);
+					isxfer = 1;
+					copy_dir(src_path, dst_path);
+					isxfer = 0;
+					f_sceKernelSleep(7);
+					sizeCurrent = 0;
+
+					check_size_folder_current(src_path);
+
+					if (total_bytes_copied == sizeCurrent)
+						printf_notification("Copy of: %s\n★Successfully★\n%.2f/%.2fMo", PROSPERO_META, (double)total_bytes_copied OCT_TO_MO, (double)sizeCurrent OCT_TO_MO);
+					else
+						printf_notification("An error is served try again");
+				}
+				else
+					printf_notification("%s", "No backup for this account");
 			}
 			else
-			{
 				printf_notification("%s", "No backup for this account");
-			}
 		}
 		else
-		{
-			printf_notification("Sorry, error loading user list...");
-		}
+			printf_notification("Sorry, error loading user list...\nTry again please");
 	}
 	else
-	{
 		printf_notification("Sory, error loading libSceSysmodule...");
-	}
-	nthread_run = 0;
-	sysModule = f_sceSysmoduleUnloadModuleInternal(SCE_SYSMODULE_INTERNAL_USER_SERVICE);
 
+	f_sceKernelSleep(7);
+	sysModule = f_sceSysmoduleUnloadModuleInternal(SCE_SYSMODULE_INTERNAL_USER_SERVICE);
+	nthread_run = 0;
 	printf_notification("Thank you for using Backup-SAV-PS5\n\nGoodbye!");
+
 	return 0;
 }
