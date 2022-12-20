@@ -9,7 +9,7 @@ Exports to a username folder in the root of your usb drive
 - Indicates the number of backups and the total size before copying
 - Notification of progress in case of many backups
 
-# Update 1.0.1
+# Update 1.0.2
 - add backup savedata_prospero_meta
 - Code rewrite
 
